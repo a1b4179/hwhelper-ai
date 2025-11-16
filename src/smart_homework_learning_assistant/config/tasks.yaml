@@ -1,0 +1,38 @@
+---
+research_topic_comprehensively:
+  description: Conduct thorough web research on {topic}. Search for multiple reliable
+    sources, gather key facts, explanations, examples, and different perspectives.
+    Focus on finding accurate, up-to-date information from credible educational sources,
+    academic sites, and reputable organizations.
+  expected_output: A comprehensive research report containing all relevant information
+    about {topic}, including key concepts, explanations, examples, and credible sources.
+    The report should be detailed enough to serve as a complete reference for understanding
+    the topic.
+  agent: web_research_specialist
+find_educational_videos:
+  description: Search for high-quality educational videos related to {topic}. Look
+    for videos that provide clear explanations, demonstrations, or tutorials that
+    would help someone learn and understand the subject better. Analyze the video
+    content to ensure it's educational and accurate.
+  expected_output: A curated list of the best educational videos for {topic}, including
+    video titles, URLs, brief descriptions of content, and explanations of why each
+    video is valuable for learning. Include videos for different learning levels when
+    possible.
+  agent: educational_video_curator
+  context:
+  - research_topic_comprehensively
+create_complete_educational_solution:
+  description: Using all the research and video resources gathered, create a comprehensive
+    educational response for {topic}. Structure the information logically, provide
+    clear explanations, include step-by-step solutions where applicable, and integrate
+    the video recommendations appropriately.
+  expected_output: 'A complete educational solution for {topic} in markdown format
+    that includes: 1) Clear explanation of key concepts, 2) Step-by-step solutions
+    or breakdowns where applicable, 3) Examples and practical applications, 4) Recommended
+    educational videos with descriptions, 5) Additional resources and references.
+    The response should be comprehensive enough to fully answer any questions about
+    the topic.'
+  agent: academic_solution_expert
+  context:
+  - research_topic_comprehensively
+  - find_educational_videos
