@@ -4,75 +4,42 @@ import sys
 import os
 
 # Add src to Python path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(current_dir, 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 app = Flask(__name__)
+
+# CRITICAL: Enable CORS for all routes and all origins
 CORS(app)
 
-@app.route('/solve', methods=['POST'])
-def solve_homework():
-    try:
-        data = request.json
-        subject = data.get('subject', '')
-        question = data.get('question', '')
-        
-        print(f"\n{'='*60}")
-        print(f"📝 New Homework Request!")
-        print(f"Subject: {subject}")
-        print(f"Question: {question}")
-        print(f"{'='*60}\n")
-        
-        # Import your crew
-        from smart_homework_learning_assistant.crew import SmartHomeworkLearningAssistantCrew
-        
-        # Create the topic string combining subject and question
-        topic = f"{subject}: {question}" if subject else question
-        
-        # Prepare inputs
-        inputs = {
-            'topic': topic
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        'message': '🎓 Welcome to HWHelper API',
+        'status': 'online',
+        'endpoints': {
+            'health': '/health',
+            'test': '/test',
+            'solve': '/solve (POST)'
         }
-        
-        print("🤖 Initializing AI agents...")
-        print("⚙️ Starting research, video curation, and solution generation...")
-        
-        # Run the crew
-        crew_instance = SmartHomeworkLearningAssistantCrew()
-        result = crew_instance.crew().kickoff(inputs=inputs)
-        
-        # Convert result to string
-        solution = str(result)
-        
-        print("\n✅ Solution generated successfully!")
-        print(f"Solution length: {len(solution)} characters\n")
-        
-        return jsonify({
-            'success': True,
-            'solution': solution
-        })
-        
-    except Exception as e:
-        print(f"\n❌ Error occurred: {str(e)}\n")
-        import traceback
-        traceback.print_exc()
-        
-        return jsonify({
-            'success': False,
-            'error': f"Error: {str(e)}. Make sure you have set up your OpenAI API key!"
-        }), 500
+    })
 
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({
         'status': 'ok', 
-        'message': '🚀 HWHelper API is running!',
+        'message': '🚀 HWHelper API is running with CORS enabled!',
         'version': '1.0'
     })
 
 @app.route('/test', methods=['GET'])
 def test():
-    """Test endpoint to verify crew import"""
     try:
         from smart_homework_learning_assistant.crew import SmartHomeworkLearningAssistantCrew
         return jsonify({
@@ -81,24 +48,82 @@ def test():
             'crew_available': True
         })
     except Exception as e:
+        import traceback
         return jsonify({
             'status': 'error',
             'message': str(e),
+            'traceback': traceback.format_exc(),
             'crew_available': False
         }), 500
 
-if __name__ == '__main__':
-    print("\n" + "="*70)
-    print("🎓 HWHelper - Smart Homework Learning Assistant API")
-    print("="*70)
-    print("📍 API URL: http://localhost:5000")
-    print("🏥 Health Check: http://localhost:5000/health")
-    print("🧪 Test Crew: http://localhost:5000/test")
-    print("💡 Solve Endpoint: http://localhost:5000/solve (POST)")
-    print("="*70)
-    print("\n⚠️  IMPORTANT: Make sure your OpenAI API key is set!")
-    print("💡 Set it with: export OPENAI_API_KEY='your-key-here' (Mac/Linux)")
-    print("💡 Or: set OPENAI_API_KEY=your-key-here (Windows)")
-    print("\n⏳ Starting server...\n")
+@app.route('/solve', methods=['POST', 'OPTIONS'])
+def solve_homework():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'}), 200
     
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    try:
+        data = request.json
+        subject = data.get('subject', 'General')
+        question = data.get('question', '')
+        
+        if not question:
+            return jsonify({
+                'success': False,
+                'error': 'No question provided'
+            }), 400
+        
+        print(f"\n{'='*70}")
+        print(f"📝 NEW REQUEST")
+        print(f"Subject: {subject}")
+        print(f"Question: {question}")
+        print(f"{'='*70}\n")
+        
+        # Import CrewAI
+        from smart_homework_learning_assistant.crew import SmartHomeworkLearningAssistantCrew
+        
+        # Prepare topic
+        topic = f"{subject}: {question}" if subject != 'General' else question
+        
+        inputs = {'topic': topic}
+        
+        print("🤖 Initializing CrewAI agents...")
+        
+        # Run the crew
+        crew_instance = SmartHomeworkLearningAssistantCrew()
+        result = crew_instance.crew().kickoff(inputs=inputs)
+        
+        # Convert result to string
+        solution = str(result)
+        
+        print("✅ Solution generated successfully!")
+        print(f"Length: {len(solution)} characters\n")
+        
+        return jsonify({
+            'success': True,
+            'solution': solution
+        })
+        
+    except Exception as e:
+        print(f"\n❌ ERROR OCCURRED:")
+        print(f"Error: {str(e)}\n")
+        import traceback
+        traceback.print_exc()
+        
+        return jsonify({
+            'success': False,
+            'error': f"Server error: {str(e)}"
+        }), 500
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    
+    print("\n" + "="*70)
+    print("🎓 HWHelper AI API Server")
+    print("="*70)
+    print(f"📍 Port: {port}")
+    print(f"🌐 CORS: Enabled (all origins)")
+    print(f"🤖 CrewAI: Ready")
+    print("="*70 + "\n")
+    
+    app.run(host='0.0.0.0', port=port, debug=False)
