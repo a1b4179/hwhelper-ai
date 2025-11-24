@@ -1,17 +1,13 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import sys
+import requests
 import os
-
-# Add src to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 app = Flask(__name__)
 
-# ENABLE CORS - CRITICAL!
+# Enable CORS
 CORS(app, origins="*", allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
-# Add CORS headers to every response
 @app.after_request
 def after_request(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
@@ -19,12 +15,17 @@ def after_request(response):
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     return response
 
+# CrewAI Cloud Configuration
+CREWAI_TOKEN = os.environ.get('CREWAI_TOKEN', '796c01f5d0bb')
+CREWAI_PROJECT_ID = '85c60404-7f80-4834-8683-f57e72137d2f'
+CREWAI_API_URL = f'https://api.crewai.com/v1/projects/{CREWAI_PROJECT_ID}/kickoff'
+
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
-        'message': '🎓 HWHelper API',
+        'message': '🎓 HWHelper API - Connected to CrewAI Cloud',
         'status': 'online',
-        'cors': 'enabled'
+        'crew': 'Smart Homework Assistant Pro V1'
     })
 
 @app.route('/health', methods=['GET'])
@@ -32,46 +33,106 @@ def health_check():
     return jsonify({
         'status': 'ok', 
         'message': '🚀 API is running!',
-        'cors': 'enabled'
+        'crewai_cloud': 'connected'
+    })
+
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({
+        'status': 'ok',
+        'message': 'API ready to call CrewAI Cloud!',
+        'project_id': CREWAI_PROJECT_ID
     })
 
 @app.route('/solve', methods=['POST', 'OPTIONS'])
 def solve_homework():
     # Handle preflight
     if request.method == 'OPTIONS':
-        response = jsonify({'status': 'ok'})
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        response.headers['Access-Control-Allow-Methods'] = 'POST'
-        return response, 200
+        return jsonify({'status': 'ok'}), 200
     
     try:
         data = request.json
         subject = data.get('subject', 'General')
         question = data.get('question', '')
         
+        if not question:
+            return jsonify({
+                'success': False,
+                'error': 'No question provided'
+            }), 400
+        
         print(f"\n{'='*60}")
-        print(f"📝 {subject}: {question}")
+        print(f"📝 Request: {subject} - {question}")
         print(f"{'='*60}\n")
         
-        from smart_homework_learning_assistant.crew import SmartHomeworkLearningAssistantCrew
-        
+        # Prepare payload for CrewAI Cloud
         topic = f"{subject}: {question}" if subject != 'General' else question
-        inputs = {'topic': topic}
         
-        print("🤖 Starting AI agents...")
+        crewai_payload = {
+            "inputs": {
+                "topic": topic
+            }
+        }
         
-        crew_instance = SmartHomeworkLearningAssistantCrew()
-        result = crew_instance.crew().kickoff(inputs=inputs)
+        headers = {
+            'Authorization': f'Bearer {CREWAI_TOKEN}',
+            'Content-Type': 'application/json'
+        }
         
-        solution = str(result)
+        print("🤖 Calling CrewAI Cloud...")
+        print(f"URL: {CREWAI_API_URL}")
         
-        print("✅ Done!\n")
+        # Call CrewAI Cloud API
+        response = requests.post(
+            CREWAI_API_URL,
+            json=crewai_payload,
+            headers=headers,
+            timeout=300  # 5 minutes timeout
+        )
         
+        print(f"Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            
+            # Extract the solution from CrewAI response
+            # The exact structure depends on CrewAI's response format
+            if 'result' in result:
+                solution = result['result']
+            elif 'output' in result:
+                solution = result['output']
+            elif 'data' in result:
+                solution = str(result['data'])
+            else:
+                solution = str(result)
+            
+            print("✅ Solution received from CrewAI Cloud!\n")
+            
+            return jsonify({
+                'success': True,
+                'solution': solution
+            }), 200
+        else:
+            error_msg = f"CrewAI Cloud error: {response.status_code}"
+            try:
+                error_detail = response.json()
+                error_msg += f" - {error_detail}"
+            except:
+                error_msg += f" - {response.text}"
+            
+            print(f"❌ Error: {error_msg}\n")
+            
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), response.status_code
+        
+    except requests.exceptions.Timeout:
+        print("❌ Request timeout\n")
         return jsonify({
-            'success': True,
-            'solution': solution
-        }), 200
+            'success': False,
+            'error': 'CrewAI Cloud request timed out. The AI agents might be taking too long.'
+        }), 504
         
     except Exception as e:
         print(f"❌ Error: {str(e)}\n")
@@ -80,10 +141,17 @@ def solve_homework():
         
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': f'Server error: {str(e)}'
         }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"\n🚀 HWHelper API on port {port}\n")
+    print(f"\n{'='*70}")
+    print(f"🎓 HWHelper API - CrewAI Cloud Integration")
+    print(f"{'='*70}")
+    print(f"📍 Port: {port}")
+    print(f"🌐 CrewAI Project: {CREWAI_PROJECT_ID}")
+    print(f"🔑 Token: {CREWAI_TOKEN[:8]}...")
+    print(f"{'='*70}\n")
+    
     app.run(host='0.0.0.0', port=port, debug=False)
