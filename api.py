@@ -18,7 +18,15 @@ def after_request(response):
 # CrewAI Cloud Configuration
 CREWAI_TOKEN = os.environ.get('CREWAI_TOKEN', '796c01f5d0bb')
 CREWAI_PROJECT_ID = '85c60404-7f80-4834-8683-f57e72137d2f'
-CREWAI_API_URL = f'https://api.crewai.com/v1/projects/{CREWAI_PROJECT_ID}/kickoff'
+
+# Possible API endpoints (we'll try them in order)
+CREWAI_ENDPOINTS = [
+    f'https://api.crewai.com/v1/crews/{CREWAI_PROJECT_ID}/kickoff',
+    f'https://api.crewai.com/crews/{CREWAI_PROJECT_ID}/kickoff',
+    f'https://app.crewai.com/api/v1/projects/{CREWAI_PROJECT_ID}/kickoff',
+    f'https://app.crewai.com/api/crews/{CREWAI_PROJECT_ID}/run',
+    f'https://api.crewai.com/v1/projects/{CREWAI_PROJECT_ID}/run',
+]
 
 @app.route('/', methods=['GET'])
 def home():
@@ -36,12 +44,40 @@ def health_check():
         'crewai_cloud': 'connected'
     })
 
-@app.route('/test', methods=['GET'])
-def test():
+@app.route('/test-endpoints', methods=['GET'])
+def test_endpoints():
+    """Test all possible CrewAI endpoints to find which one works"""
+    results = []
+    
+    headers = {
+        'Authorization': f'Bearer {CREWAI_TOKEN}',
+        'Content-Type': 'application/json'
+    }
+    
+    test_payload = {
+        "inputs": {
+            "topic": "test"
+        }
+    }
+    
+    for endpoint in CREWAI_ENDPOINTS:
+        try:
+            response = requests.post(endpoint, json=test_payload, headers=headers, timeout=10)
+            results.append({
+                'endpoint': endpoint,
+                'status': response.status_code,
+                'working': response.status_code in [200, 201, 202]
+            })
+        except Exception as e:
+            results.append({
+                'endpoint': endpoint,
+                'status': 'error',
+                'error': str(e)
+            })
+    
     return jsonify({
-        'status': 'ok',
-        'message': 'API ready to call CrewAI Cloud!',
-        'project_id': CREWAI_PROJECT_ID
+        'results': results,
+        'instructions': 'Look for status 200, 201, or 202 to find the working endpoint'
     })
 
 @app.route('/solve', methods=['POST', 'OPTIONS'])
@@ -79,60 +115,61 @@ def solve_homework():
             'Content-Type': 'application/json'
         }
         
-        print("🤖 Calling CrewAI Cloud...")
-        print(f"URL: {CREWAI_API_URL}")
+        print("🤖 Trying CrewAI Cloud endpoints...")
         
-        # Call CrewAI Cloud API
-        response = requests.post(
-            CREWAI_API_URL,
-            json=crewai_payload,
-            headers=headers,
-            timeout=300  # 5 minutes timeout
-        )
-        
-        print(f"Response Status: {response.status_code}")
-        
-        if response.status_code == 200:
-            result = response.json()
-            
-            # Extract the solution from CrewAI response
-            # The exact structure depends on CrewAI's response format
-            if 'result' in result:
-                solution = result['result']
-            elif 'output' in result:
-                solution = result['output']
-            elif 'data' in result:
-                solution = str(result['data'])
-            else:
-                solution = str(result)
-            
-            print("✅ Solution received from CrewAI Cloud!\n")
-            
-            return jsonify({
-                'success': True,
-                'solution': solution
-            }), 200
-        else:
-            error_msg = f"CrewAI Cloud error: {response.status_code}"
+        # Try each endpoint until one works
+        last_error = None
+        for endpoint in CREWAI_ENDPOINTS:
             try:
-                error_detail = response.json()
-                error_msg += f" - {error_detail}"
-            except:
-                error_msg += f" - {response.text}"
-            
-            print(f"❌ Error: {error_msg}\n")
-            
-            return jsonify({
-                'success': False,
-                'error': error_msg
-            }), response.status_code
+                print(f"Trying: {endpoint}")
+                
+                response = requests.post(
+                    endpoint,
+                    json=crewai_payload,
+                    headers=headers,
+                    timeout=300
+                )
+                
+                print(f"Response: {response.status_code}")
+                
+                if response.status_code in [200, 201, 202]:
+                    result = response.json()
+                    
+                    # Extract solution
+                    if 'result' in result:
+                        solution = result['result']
+                    elif 'output' in result:
+                        solution = result['output']
+                    elif 'data' in result:
+                        solution = str(result['data'])
+                    else:
+                        solution = str(result)
+                    
+                    print(f"✅ Success with endpoint: {endpoint}\n")
+                    
+                    return jsonify({
+                        'success': True,
+                        'solution': solution,
+                        'endpoint_used': endpoint
+                    }), 200
+                
+                last_error = f"Status {response.status_code}: {response.text}"
+                
+            except requests.exceptions.Timeout:
+                last_error = "Request timeout"
+                continue
+            except Exception as e:
+                last_error = str(e)
+                continue
         
-    except requests.exceptions.Timeout:
-        print("❌ Request timeout\n")
+        # If we get here, none of the endpoints worked
+        print(f"❌ All endpoints failed. Last error: {last_error}\n")
+        
         return jsonify({
             'success': False,
-            'error': 'CrewAI Cloud request timed out. The AI agents might be taking too long.'
-        }), 504
+            'error': f'Could not connect to CrewAI Cloud. Last error: {last_error}',
+            'tried_endpoints': CREWAI_ENDPOINTS
+        }), 502
         
     except Exception as e:
         print(f"❌ Error: {str(e)}\n")
